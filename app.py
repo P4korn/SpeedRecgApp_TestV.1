@@ -13,10 +13,14 @@ os.makedirs(project_folder, exist_ok=True)
 
 # Function to convert audio to WAV format
 def convert_to_wav(audio_file):
-    audio = AudioSegment.from_file(audio_file)
-    wav_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-    audio.export(wav_file.name, format="wav")
-    return wav_file.name
+    try:
+        audio = AudioSegment.from_file(audio_file)
+        wav_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        audio.export(wav_file.name, format="wav")
+        return wav_file.name
+    except Exception as e:
+        st.error(f"Error converting file: {str(e)}")
+        return None
 
 # Function to try transcribing the entire audio first
 def transcribe_whole_audio(audio_file):
@@ -84,7 +88,7 @@ if uploaded_file is not None:
         else:
             wav_file_path = tempfile.NamedTemporaryFile(delete=False,suffix=".wav").name
             with open(wav_file_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+                f.write(uploaded_file.read())
 
         st.audio(wav_file_path)  # Play the uploaded audio file
 
