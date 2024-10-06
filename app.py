@@ -4,15 +4,7 @@ import soundfile as sf
 import os
 import tempfile
 import time
-import subprocess
 
-# Check if ffmpeg is available
-try:
-    subprocess.run(["ffmpeg", "-version"], check=True)
-    subprocess.run(["ffprobe", "-version"], check=True)
-    st.success("FFmpeg is available!")
-except FileNotFoundError:
-    st.error("FFmpeg or ffprobe is not available.")
 
 # Specify the directory in the project folder to save audio files and transcripts
 project_folder = "transcripts"  # Create a folder named "transcripts" in your project directory
