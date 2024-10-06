@@ -1,13 +1,12 @@
-from io import StringIO
 import streamlit as st
 import speech_recognition as sr
-from pydub import AudioSegment
+import soundfile as sf
 import os
 import tempfile
 import time
 import subprocess
 
-
+# Check if ffmpeg is available
 try:
     subprocess.run(["ffmpeg", "-version"], check=True)
     subprocess.run(["ffprobe", "-version"], check=True)
@@ -21,9 +20,10 @@ os.makedirs(project_folder, exist_ok=True)
 
 # Function to convert audio to WAV format
 def convert_to_wav(audio_file):
-    audio = AudioSegment.from_file(audio_file)
+    # Load the audio file and save as a temporary WAV file
+    audio_data, sample_rate = sf.read(audio_file)
     wav_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-    audio.export(wav_file.name, format="wav")
+    sf.write(wav_file.name, audio_data, sample_rate)
     return wav_file.name
 
 # Function to try transcribing the entire audio first
@@ -42,24 +42,24 @@ def transcribe_whole_audio(audio_file):
 # Function to transcribe audio in chunks if full transcription fails
 def transcribe_audio_in_chunks(audio_file):
     recognizer = sr.Recognizer()
-    audio = AudioSegment.from_file(audio_file, format="wav")
+    audio_data, sample_rate = sf.read(audio_file)
     
-    chunk_length = 30 * 1000  # 30 seconds
-    num_chunks = len(audio) // chunk_length + (len(audio) % chunk_length > 0)
+    chunk_length = 30 * sample_rate  # 30 seconds in samples
+    num_chunks = len(audio_data) // chunk_length + (len(audio_data) % chunk_length > 0)
     recognized_text = []
 
     for i in range(num_chunks):
-        start_time = i * chunk_length
-        end_time = start_time + chunk_length
-        chunk = audio[start_time:end_time]
+        start_sample = i * chunk_length
+        end_sample = start_sample + chunk_length
+        chunk = audio_data[start_sample:end_sample]
 
         chunk_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        chunk.export(chunk_file.name, format="wav")
+        sf.write(chunk_file.name, chunk, sample_rate)
 
         with sr.AudioFile(chunk_file.name) as source:
-            audio_data = recognizer.record(source)
+            audio_data_chunk = recognizer.record(source)
             try:
-                text = recognizer.recognize_google(audio_data, language="th-TH")
+                text = recognizer.recognize_google(audio_data_chunk, language="th-TH")
                 recognized_text.append(text)
             except sr.UnknownValueError:
                 recognized_text.append("Could not understand audio")
@@ -83,7 +83,7 @@ if uploaded_file is not None:
             st.write("Converting audio to WAV format...")
             wav_file_path = convert_to_wav(uploaded_file)  # Convert to WAV
         else:
-            wav_file_path = tempfile.NamedTemporaryFile(delete=False,suffix=".wav").name
+            wav_file_path = tempfile.NamedTemporaryFile(delete=False, suffix=".wav").name
             with open(wav_file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
@@ -98,10 +98,6 @@ if uploaded_file is not None:
 
             if transcription is None:
                 # If whole transcription fails, show the error and fallback to chunking
-                # st.write(f"Whole audio transcription failed: {error_message}")
-                # st.write("Falling back to chunk-based transcription...")
-                
-                # Transcribe the audio in chunks
                 transcription = transcribe_audio_in_chunks(wav_file_path)
 
         # Show the transcription result
