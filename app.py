@@ -1,7 +1,9 @@
+from io import StringIO
 import streamlit as st
 import speech_recognition as sr
 from pydub import AudioSegment
 import os
+import tempfile
 import time
 
 # Specify the directory in the project folder to save audio files and transcripts
@@ -9,9 +11,11 @@ project_folder = "transcripts"  # Create a folder named "transcripts" in your pr
 os.makedirs(project_folder, exist_ok=True)
 
 # Function to convert audio to WAV format
-def convert_to_wav(audio_file, output_file):
+def convert_to_wav(audio_file):
     audio = AudioSegment.from_file(audio_file)
-    audio.export(output_file, format="wav")
+    wav_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    audio.export(wav_file.name, format="wav")
+    return wav_file.name
 
 # Function to try transcribing the entire audio first
 def transcribe_whole_audio(audio_file):
@@ -27,7 +31,7 @@ def transcribe_whole_audio(audio_file):
         return None, "Could not understand audio"
 
 # Function to transcribe audio in chunks if full transcription fails
-def transcribe_audio_in_chunks(audio_file, file_name_base):
+def transcribe_audio_in_chunks(audio_file):
     recognizer = sr.Recognizer()
     audio = AudioSegment.from_file(audio_file, format="wav")
     
@@ -40,10 +44,10 @@ def transcribe_audio_in_chunks(audio_file, file_name_base):
         end_time = start_time + chunk_length
         chunk = audio[start_time:end_time]
 
-        chunk_file_name = f"{project_folder}/{file_name_base}_chunk_{i}.wav"
-        chunk.export(chunk_file_name, format="wav")
+        chunk_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        chunk.export(chunk_file.name, format="wav")
 
-        with sr.AudioFile(chunk_file_name) as source:
+        with sr.AudioFile(chunk_file.name) as source:
             audio_data = recognizer.record(source)
             try:
                 text = recognizer.recognize_google(audio_data, language="th-TH")
@@ -57,29 +61,26 @@ def transcribe_audio_in_chunks(audio_file, file_name_base):
     return full_text
 
 # Streamlit app
-st.title("Audio Transcription App")
+st.title("Thai Audio Transcription App")
 st.write("Upload an audio file (WAV or M4A format) to transcribe.")
 
 # File uploader
 uploaded_file = st.file_uploader("Choose an audio file", type=["wav", "m4a"])
 
 if uploaded_file is not None:
-    # Extract the original file name and timestamp to generate a unique base name
-    original_file_name = os.path.splitext(uploaded_file.name)[0]
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    file_name_base = f"{original_file_name}_{timestamp}"
-    
-    wav_file_path = f"{project_folder}/{file_name_base}.wav"
-    
-    # Check if the uploaded file is not a WAV file
-    if uploaded_file.type != "audio/wav":
-        st.write("Converting audio to WAV format...")
-        convert_to_wav(uploaded_file, wav_file_path)  # Convert to WAV
-    else:
-        with open(wav_file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+    try:
+        # Check if the uploaded file is not a WAV file
+        if uploaded_file.type != "audio/wav":
+            st.write("Converting audio to WAV format...")
+            wav_file_path = convert_to_wav(uploaded_file)  # Convert to WAV
+        else:
+            wav_file_path = tempfile.NamedTemporaryFile(delete=False,suffix=".wav").name
+            with open(wav_file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
 
-    st.audio(wav_file_path)  # Play the uploaded audio file
+        st.audio(wav_file_path)  # Play the uploaded audio file
+    except Exception as e:
+        st.error(f"Error processing audio file: {str(e)}")
 
     if st.button("Transcribe"):
         with st.spinner("Transcribing..."):
@@ -92,21 +93,16 @@ if uploaded_file is not None:
                 # st.write("Falling back to chunk-based transcription...")
                 
                 # Transcribe the audio in chunks
-                transcription = transcribe_audio_in_chunks(wav_file_path, file_name_base)
+                transcription = transcribe_audio_in_chunks(wav_file_path)
 
         # Show the transcription result
         st.subheader("Transcription Result:")
         st.write(transcription)
 
-        # Export the recognized text to a text file in the project folder
-        text_file_path = f"{project_folder}/text/{file_name_base}_recognized_text.txt"
-        with open(text_file_path, "w", encoding="utf-8") as f:
-            f.write(transcription)
-
-        # Provide a download link for the text file
+        # Provide a download link for the transcription as text
         st.download_button(
             label="Download Transcription",
-            data=open(text_file_path, "r", encoding="utf-8").read(),
-            file_name=f"{file_name_base}_recognized_text.txt",
+            data=transcription,
+            file_name="recognized_text.txt",
             mime="text/plain"
         )
