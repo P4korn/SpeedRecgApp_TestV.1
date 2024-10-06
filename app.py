@@ -4,6 +4,7 @@ import soundfile as sf
 import os
 import tempfile
 import time
+from pydub import AudioSegment
 
 
 # Specify the directory in the project folder to save audio files and transcripts
@@ -12,10 +13,9 @@ os.makedirs(project_folder, exist_ok=True)
 
 # Function to convert audio to WAV format
 def convert_to_wav(audio_file):
-    # Load the audio file and save as a temporary WAV file
-    audio_data, sample_rate = sf.read(audio_file)
+    audio = AudioSegment.from_file(audio_file)
     wav_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-    sf.write(wav_file.name, audio_data, sample_rate)
+    audio.export(wav_file.name, format="wav")
     return wav_file.name
 
 # Function to try transcribing the entire audio first
@@ -30,7 +30,7 @@ def transcribe_whole_audio(audio_file):
         return None, f"Request error: {e}"
     except sr.UnknownValueError:
         return None, "Could not understand audio"
-
+    
 # Function to transcribe audio in chunks if full transcription fails
 def transcribe_audio_in_chunks(audio_file):
     recognizer = sr.Recognizer()
@@ -61,12 +61,19 @@ def transcribe_audio_in_chunks(audio_file):
     full_text = "\n".join(recognized_text)
     return full_text
 
+
 # Streamlit app
 st.title("Thai Audio Transcription App")
 st.write("Upload an audio file (WAV or M4A format) to transcribe.")
 
 # File uploader
 uploaded_file = st.file_uploader("Choose an audio file", type=["wav", "m4a"])
+
+# Initialize session state variables
+if 'transcription' not in st.session_state:
+    st.session_state.transcription = ""
+if 'transcription_completed' not in st.session_state:
+    st.session_state.transcription_completed = False
 
 if uploaded_file is not None:
     try:
@@ -75,31 +82,41 @@ if uploaded_file is not None:
             st.write("Converting audio to WAV format...")
             wav_file_path = convert_to_wav(uploaded_file)  # Convert to WAV
         else:
-            wav_file_path = tempfile.NamedTemporaryFile(delete=False, suffix=".wav").name
+            wav_file_path = tempfile.NamedTemporaryFile(delete=False,suffix=".wav").name
             with open(wav_file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
         st.audio(wav_file_path)  # Play the uploaded audio file
+
     except Exception as e:
         st.error(f"Error processing audio file: {str(e)}")
 
     if st.button("Transcribe"):
         with st.spinner("Transcribing..."):
-            # First try to transcribe the whole audio
             transcription, error_message = transcribe_whole_audio(wav_file_path)
 
             if transcription is None:
-                # If whole transcription fails, show the error and fallback to chunking
                 transcription = transcribe_audio_in_chunks(wav_file_path)
 
-        # Show the transcription result
+            # Store the transcription in session state
+            st.session_state.transcription = transcription
+            st.session_state.transcription_completed = True
+            
+    # Show the transcription result if completed
+    if st.session_state.transcription_completed:
         st.subheader("Transcription Result:")
-        st.write(transcription)
+        st.write(st.session_state.transcription)
 
-        # Provide a download link for the transcription as text
+        # Download button always shown if not cancelled
         st.download_button(
             label="Download Transcription",
-            data=transcription,
+            data=st.session_state.transcription,
             file_name="recognized_text.txt",
             mime="text/plain"
         )
+
+        # Cancel button to reset the transcription
+        if st.button("Cancel"):
+            st.session_state.transcription = ""
+            st.session_state.transcription_completed = False
+            st.success("Transcription reset. Please upload a new audio file.")
